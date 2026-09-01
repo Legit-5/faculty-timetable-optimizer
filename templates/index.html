@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Faculty Timetable Optimizer — Intelligent conflict-free timetable generation using Greedy Algorithm & Heuristic Scoring." />
+  <title>Faculty Timetable Optimizer — Intelligent Scheduling Engine</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📅</text></svg>" />
+</head>
+<body>
+
+  <!-- Animated Background -->
+  <div class="bg-grid"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <div class="app-container">
+
+    <!-- Header Section -->
+    <header class="header">
+      <div class="header__badge">
+        <span class="dot"></span>
+        Greedy Algorithm + Heuristic Scoring
+      </div>
+      <h1 class="header__title">Faculty Timetable Optimizer</h1>
+      <p class="header__subtitle">
+        Automated, conflict-free weekly timetable scheduling with workload balancing, subject distribution, and substitute management.
+      </p>
+      
+      <!-- Top Action Navigation -->
+      <div class="header__nav">
+        <button class="nav-btn" id="open-viva-btn" type="button">
+          📘 Viva &amp; Algorithm Guide
+        </button>
+        <button class="nav-btn" id="open-substitution-btn" type="button">
+          👥 Faculty Substitution
+        </button>
+      </div>
+    </header>
+
+    <!-- Configuration Main Panel -->
+    <section class="config-panel" id="config-panel">
+      <div class="config-panel__header">
+        <div class="config-panel__title">
+          <span class="icon">⚙️</span>
+          Scheduler Configuration
+        </div>
+        <div class="btn-group">
+          <button class="btn btn--ghost" id="reset-btn" type="button">🔄 Reset Defaults</button>
+          <button class="btn btn--primary" id="generate-btn" type="button">⚡ Generate Timetable</button>
+        </div>
+      </div>
+
+      <!-- Capacity & Validation Summary Alert Bar -->
+      <div class="capacity-banner" id="capacity-banner">
+        <div class="capacity-stat">
+          <span class="capacity-label">Total Slots:</span>
+          <strong id="cap-total-slots">20</strong>
+        </div>
+        <div class="capacity-stat">
+          <span class="capacity-label">Required Hours:</span>
+          <strong id="cap-req-hours">16h</strong>
+        </div>
+        <div class="capacity-stat">
+          <span class="capacity-label">Capacity Balance:</span>
+          <span class="capacity-badge capacity-badge--ok" id="cap-status">Valid (4 Free Slots)</span>
+        </div>
+      </div>
+
+      <!-- Grid Layout for Config Sections -->
+      <div class="config-grid config-grid--2col">
+        
+        <!-- SECTION 1: FACULTY & SUBJECT MAPPING & AVAILABILITY -->
+        <div class="config-group config-card">
+          <div class="card-header">
+            <h3>👨‍🏫 Faculty Members &amp; Subject Mapping</h3>
+            <span class="card-hint">Compulsory: map at least 1 subject per faculty</span>
+          </div>
+
+          <div class="tag-input-row">
+            <input type="text" class="tag-input" id="faculty-add-input" placeholder="e.g. Prof. Sharma" />
+            <button class="btn btn--add" id="faculty-add-btn" type="button">+ Add Faculty</button>
+          </div>
+
+          <!-- Dynamic Faculty Cards Container -->
+          <div class="faculty-cards-list" id="faculty-cards-container"
+            data-defaults='{{ faculty | tojson }}'
+            data-mapping='{{ subject_faculty_map | tojson }}'
+            data-availability='{{ faculty_availability | tojson }}'>
+          </div>
+        </div>
+
+        <!-- SECTION 2: SUBJECTS & REQUIRED WEEKLY HOURS -->
+        <div class="config-group config-card">
+          <div class="card-header">
+            <h3>📚 Subjects &amp; Required Weekly Hours</h3>
+            <span class="card-hint">Set weekly required lecture hours</span>
+          </div>
+
+          <div class="tag-input-row">
+            <input type="text" class="tag-input" id="subjects-add-input" placeholder="e.g. Machine Learning" />
+            <button class="btn btn--add" id="subjects-add-btn" type="button">+ Add Subject</button>
+          </div>
+
+          <!-- Dynamic Subjects & Hours Container -->
+          <div class="subjects-list" id="subjects-container"
+            data-defaults='{{ subjects | tojson }}'
+            data-hours='{{ subject_hours | tojson }}'>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="config-grid config-grid--2col" style="margin-top: 24px;">
+
+        <!-- SECTION 3: DAYS OF THE WEEK -->
+        <div class="config-group config-card">
+          <div class="card-header">
+            <h3>📆 Scheduled Days</h3>
+            <div class="preset-btn-group">
+              <button class="btn-preset" data-preset="mon-fri" type="button">Mon-Fri</button>
+              <button class="btn-preset" data-preset="mon-sat" type="button">Mon-Sat</button>
+              <button class="btn-preset" data-preset="all-days" type="button">All 7 Days</button>
+            </div>
+          </div>
+
+          <div class="tag-input-row">
+            <input type="text" class="tag-input" id="days-add-input" placeholder="e.g. Saturday" />
+            <button class="btn btn--add" id="days-add-btn" type="button">+ Add Day</button>
+          </div>
+
+          <div class="tag-list" id="days-tags-container" data-defaults='{{ days | tojson }}'></div>
+        </div>
+
+        <!-- SECTION 4: TIME SLOTS -->
+        <div class="config-group config-card">
+          <div class="card-header">
+            <h3>🕐 Time Slots</h3>
+            <span class="card-hint">AM/PM supported; no overlapping intervals</span>
+          </div>
+
+          <!-- Quick Time Slot Builder -->
+          <div class="slot-builder-row">
+            <input type="time" class="time-picker" id="slot-start-time" value="09:00" />
+            <span class="slot-arrow">to</span>
+            <input type="time" class="time-picker" id="slot-end-time" value="10:00" />
+            <button class="btn btn--add" id="slot-add-time-btn" type="button">+ Add Slot</button>
+          </div>
+
+          <div class="tag-list" id="slots-tags-container" data-defaults='{{ time_slots | tojson }}'></div>
+        </div>
+
+      </div>
+
+      <!-- SECTION 5: ADVANCED SCHEDULING CONSTRAINTS -->
+      <div class="config-group config-card config-group--full" style="margin-top: 24px;">
+        <div class="card-header">
+          <h3>⚖️ Algorithm &amp; Workload Balancing Constraints</h3>
+        </div>
+        <div class="constraints-grid">
+          <div class="constraint-item">
+            <label for="max-daily-lectures">Max Lectures Per Faculty / Day:</label>
+            <div class="stepper-wrap">
+              <button class="stepper-btn" id="max-daily-minus" type="button">−</button>
+              <span class="stepper-val" id="max-daily-val">2</span>
+              <button class="stepper-btn" id="max-daily-plus" type="button">+</button>
+            </div>
+            <span class="constraint-hint">Enforces teacher anti-fatigue limit</span>
+          </div>
+
+          <div class="constraint-item">
+            <label>Heuristic Penalties:</label>
+            <div class="badge-row">
+              <span class="rule-badge">Consecutive: 10,000</span>
+              <span class="rule-badge">Daily Repeat: 250</span>
+              <span class="rule-badge">Hours Bonus: 60</span>
+            </div>
+          </div>
+
+          <div class="constraint-item">
+            <label>Algorithm Mode:</label>
+            <span class="rule-badge rule-badge--accent">Informed Greedy Search</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Real-Time Stats Bar -->
+    <div class="stats-bar" id="stats-bar" style="display: none;">
+      <div class="stat-card">
+        <div class="stat-card__value" id="stat-days">5</div>
+        <div class="stat-card__label">Active Days</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__value" id="stat-lectures">16</div>
+        <div class="stat-card__label">Scheduled Lectures</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__value" id="stat-free-periods">4</div>
+        <div class="stat-card__label">Free Periods</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__value" id="stat-faculty">3</div>
+        <div class="stat-card__label">Faculty Members</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__value" id="stat-validation">100%</div>
+        <div class="stat-card__label">Conflict Free</div>
+      </div>
+    </div>
+
+    <!-- Generated Timetable Section -->
+    <section class="timetable-section">
+      <div class="section-header-flex">
+        <div>
+          <h2 class="timetable-section__title">📅 Generated Weekly Timetable</h2>
+          <p class="timetable-section__desc" id="timetable-subtitle">Conflict-free schedule based on heuristic optimization</p>
+        </div>
+        <div class="view-toggle-group" id="view-controls" style="display: none;">
+          <button class="btn-toggle active" id="view-grid-btn" type="button">📊 Matrix Grid</button>
+          <button class="btn-toggle" id="view-cards-btn" type="button">📆 Day Cards</button>
+          <button class="btn-toggle btn-toggle--action" id="print-btn" type="button">🖨️ Print / PDF</button>
+          <button class="btn-toggle btn-toggle--action" id="export-csv-btn" type="button">📥 Export CSV</button>
+        </div>
+      </div>
+
+      <!-- Timetable Validation Status Banner -->
+      <div class="validation-banner" id="validation-banner" style="display: none;"></div>
+
+      <!-- Matrix Grid View Container -->
+      <div class="weekly-table-wrapper" id="weekly-matrix-wrapper" style="display: none;">
+        <div id="weekly-table-container"></div>
+      </div>
+
+      <!-- Day Cards View Container -->
+      <div id="timetable-container"></div>
+
+      <!-- Empty State -->
+      <div class="empty-state" id="empty-state">
+        <div class="empty-state__icon">📋</div>
+        <div class="empty-state__text">No timetable generated yet</div>
+        <div class="empty-state__hint">Configure your faculty, subjects, and hours above, then click <strong>Generate Timetable</strong></div>
+      </div>
+    </section>
+
+    <!-- Subject Hours Dashboard -->
+    <section class="hours-summary-section" id="hours-summary-section" style="display: none;">
+      <h2 class="timetable-section__title">📏 Subject Hours Fulfillment</h2>
+      <div id="hours-summary-container"></div>
+    </section>
+
+    <!-- Faculty Workload Distribution Dashboard -->
+    <section class="workload-section" id="workload-section" style="display: none;">
+      <h2 class="timetable-section__title">👨‍🏫 Faculty Workload Balance</h2>
+      <div id="workload-container"></div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>Faculty Timetable Optimizer &copy; 2026 &mdash; Built with Python (Flask) &amp; Greedy Heuristic Engine</p>
+      <div class="footer-links">
+        <a href="#config-panel">Configure</a> &bull;
+        <a href="javascript:void(0)" id="footer-viva-link">Viva Guide</a> &bull;
+        <a href="javascript:void(0)" id="footer-sub-link">Faculty Substitution</a>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">
+    <span class="toast-icon">✅</span>
+    <span class="toast-message">Success</span>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- MODAL 1: FACULTY SUBSTITUTION TOOL -->
+  <!-- ========================================================== -->
+  <div class="modal-overlay" id="substitution-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>👥 Faculty Substitution Manager</h3>
+        <button class="modal-close" id="sub-modal-close" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">
+          When a faculty member is absent, this tool finds their scheduled lectures and identifies
+          <strong>only qualified substitutes</strong> (teachers mapped to the subject) who are free at that time slot.
+        </p>
+
+        <div class="sub-form-grid">
+          <div class="sub-field">
+            <label for="sub-faculty-select">Absent Faculty Member:</label>
+            <select class="sub-select" id="sub-faculty-select"></select>
+          </div>
+          <div class="sub-field">
+            <label for="sub-day-select">Absent Day:</label>
+            <select class="sub-select" id="sub-day-select"></select>
+          </div>
+          <div class="sub-field sub-field--action">
+            <button class="btn btn--primary" id="sub-find-btn" type="button">🔍 Check Affected Lectures</button>
+          </div>
+        </div>
+
+        <!-- Substitution Results Container -->
+        <div class="sub-results" id="sub-results-container" style="display: none;">
+          <div class="sub-results-header">
+            <h4 id="sub-results-title">Affected Lectures</h4>
+            <button class="btn btn--accent btn--sm" id="sub-auto-all-btn" type="button">⚡ Auto-Assign Least Loaded</button>
+          </div>
+          <div class="sub-lectures-list" id="sub-lectures-list"></div>
+          <div class="sub-actions-footer">
+            <button class="btn btn--primary" id="sub-apply-btn" type="button">💾 Apply Substitutions to Timetable</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================== -->
+  <!-- MODAL 2: VIVA & ALGORITHM PRESENTATION GUIDE -->
+  <!-- ========================================================== -->
+  <div class="modal-overlay" id="viva-modal">
+    <div class="modal-card modal-card--lg">
+      <div class="modal-header">
+        <h3>📘 College Viva &amp; Algorithm Architecture Guide</h3>
+        <button class="modal-close" id="viva-modal-close" type="button">✕</button>
+      </div>
+      <div class="modal-body viva-content">
+        
+        <div class="viva-section">
+          <h4>🧠 1. AI Algorithm: Greedy Algorithm with Heuristic Scoring</h4>
+          <p>
+            This system utilizes an <strong>Informed Search (Greedy Heuristic) Algorithm</strong>.
+            At every available <code>(Day, Time Slot)</code>, the engine examines all valid subject-faculty candidates and assigns the candidate with the <strong>lowest heuristic score</strong>.
+          </p>
+          <div class="viva-code-box">
+            <strong>Heuristic Evaluation Function:</strong><br/>
+            <code>Score = Consecutive_Penalty + Daily_Repeat_Penalty - Remaining_Hours_Bonus + Workload_Penalty + Rotation_Offset</code>
+          </div>
+          <ul class="viva-list">
+            <li><strong>Consecutive Penalty (+10,000):</strong> Prevents teaching the same subject back-to-back.</li>
+            <li><strong>Daily Repeat Penalty (+250 × count):</strong> Prevents clustering the same subject on one day.</li>
+            <li><strong>Remaining Hours Bonus (-60 × remaining):</strong> Prioritizes subjects with the most unscheduled hours.</li>
+            <li><strong>Workload Penalty (+15 × load):</strong> Automatically balances total lectures across all teachers.</li>
+          </ul>
+        </div>
+
+        <div class="viva-section">
+          <h4>❓ 2. Is this Machine Learning? (Critical Viva Question)</h4>
+          <p>
+            <strong>No, this is NOT Machine Learning.</strong> It is a <em>deterministic heuristic search algorithm</em>.
+            Machine Learning requires training datasets, weights optimization, and statistical inferences. A college timetable optimizer must guarantee <strong>100% hard constraint satisfaction</strong> (zero double-bookings, compulsory subject mappings), which heuristic search achieves deterministically and explainably.
+          </p>
+        </div>
+
+        <div class="viva-section">
+          <h4>⚙️ 3. Step-by-Step Execution Pipeline</h4>
+          <ol class="viva-list">
+            <li><strong>Input Validation:</strong> Verifies unique faculty/subjects, positive hours, and non-overlapping time slots.</li>
+            <li><strong>Capacity Check:</strong> Confirms <code>Total Required Hours &le; Total Days &times; Total Slots</code>.</li>
+            <li><strong>Candidate Filtering:</strong> Filters candidates by: (a) Subject hours &gt; 0, (b) Faculty mapped to subject, (c) Faculty available on day, (d) Faculty not busy in slot, (e) Max daily limit &le; 2.</li>
+            <li><strong>Greedy Selection:</strong> Calculates score for candidates &amp; selects lowest. If no candidate exists, designates <code>— Free Period —</code>.</li>
+            <li><strong>State Update:</strong> Updates remaining hours, faculty total workload, and busy slot sets.</li>
+            <li><strong>Final Verification:</strong> Validates zero collisions and generates workload and hours dashboards.</li>
+          </ol>
+        </div>
+
+        <div class="viva-section">
+          <h4>🚀 4. Future Enhancements</h4>
+          <ul class="viva-list">
+            <li><strong>Genetic Algorithms (GA):</strong> Chromosome representation for multi-objective global optimization.</li>
+            <li><strong>Constraint Satisfaction Problems (CSP):</strong> Backtracking with Forward Checking &amp; Arc Consistency (AC-3).</li>
+            <li><strong>Room &amp; Lab Allocation:</strong> Managing physical classroom and laboratory constraints.</li>
+            <li><strong>Student Batch &amp; Electives Support:</strong> Multi-section timetables without student clashes.</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

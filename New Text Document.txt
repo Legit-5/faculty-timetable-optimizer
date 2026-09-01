@@ -1,0 +1,373 @@
+"""
+Faculty Timetable Optimizer - Flask Web Application
+"""
+
+from flask import Flask, render_template, jsonify, request
+
+app = Flask(__name__)
+
+# -----------------------------
+# Default Data
+# -----------------------------
+DEFAULT_FACULTY = ["Prof. Rahul", "Prof. Amit", "Prof. Neha"]
+DEFAULT_SUBJECTS = ["Python", "DBMS", "Statistics"]
+DEFAULT_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+DEFAULT_TIME_SLOTS = [
+    "9:00 AM - 10:00 AM",
+    "10:00 AM - 11:00 AM",
+    "11:00 AM - 12:00 PM",
+    "12:00 PM - 1:00 PM",
+]
+
+
+# -----------------------------
+# Timetable Generation Logic
+# -----------------------------
+def generate_timetable(
+    faculty=None,
+    subjects=None,
+    days=None,
+    time_slots=None,
+    subject_hours=None,
+    faculty_subjects=None,
+    faculty_availability=None,
+):
+    """Generate a timetable respecting faculty-subject mappings,
+    faculty availability, and per-subject hour requirements."""
+
+    faculty = faculty or DEFAULT_FACULTY
+    subjects = subjects or DEFAULT_SUBJECTS
+    days = days or DEFAULT_DAYS
+    time_slots = time_slots or DEFAULT_TIME_SLOTS
+
+    # Default constraints
+    if subject_hours is None:
+        subject_hours = {s: 4 for s in subjects}
+    if faculty_subjects is None:
+        faculty_subjects = {f: list(subjects) for f in faculty}
+    if faculty_availability is None:
+        faculty_availability = {f: list(days) for f in faculty}
+
+    timetable = {}
+    warnings = []
+
+    # Track how many hours each subject has been scheduled
+    subject_scheduled = {s: 0 for s in subjects}
+
+    # Track which (day, slot) each faculty is busy and total faculty load
+    faculty_busy = {f: set() for f in faculty}
+    faculty_total_load = {f: 0 for f in faculty}
+
+    # Track how many times each subject is scheduled per day to ensure even distribution
+    day_subject_count = {d: {s: 0 for s in subjects} for d in days}
+    day_last_subject = {d: None for d in days}
+
+    # Temporary storage mapping (day, slot) -> lecture object
+    slot_assignments = {d: {} for d in days}
+    warnings = []
+
+    # Iterate slot-by-slot across all days to distribute subjects evenly across the week
+    for slot_idx, slot in enumerate(time_slots):
+        for day_idx, day in enumerate(days):
+            candidates = []
+
+            for s in subjects:
+                rem = subject_hours.get(s, 4) - subject_scheduled.get(s, 0)
+                if rem <= 0:
+                    continue
+
+                today_count = day_subject_count[day].get(s, 0)
+                is_consecutive = (s == day_last_subject[day])
+
+                # Find eligible faculty for this subject on this day and time slot
+                eligible_faculty = [
+                    f for f in faculty
+                    if s in faculty_subjects.get(f, [])
+                    and day in faculty_availability.get(f, [])
+                    and (day, slot) not in faculty_busy.get(f, set())
+                ]
+
+                if not eligible_faculty:
+                    continue
+
+                # Pick eligible faculty with least overall load
+                best_faculty = min(eligible_faculty, key=lambda f: faculty_total_load[f])
+
+                # Scoring function (lower score is better):
+                # 1. Very heavy penalty for consecutive sessions of the same subject
+                # 2. Moderate penalty for scheduling the same subject multiple times on the same day
+                # 3. Preference for subjects with more remaining hours
+                # 4. Tie-breaking rotation based on subject, day, and slot indices
+                consecutive_penalty = 10000 if is_consecutive else 0
+                daily_repeat_penalty = 200 * today_count
+                remaining_bonus = rem * 10
+                rotation_offset = (subjects.index(s) + day_idx + slot_idx) % len(subjects)
+
+                score = consecutive_penalty + daily_repeat_penalty - remaining_bonus + rotation_offset
+                candidates.append((score, s, best_faculty))
+
+            if candidates:
+                candidates.sort(key=lambda x: x[0])
+                _, chosen_subject, chosen_faculty = candidates[0]
+
+                slot_assignments[day][slot] = {
+                    "time": slot,
+                    "subject": chosen_subject,
+                    "faculty": chosen_faculty,
+                }
+                faculty_busy[chosen_faculty].add((day, slot))
+                faculty_total_load[chosen_faculty] += 1
+                subject_scheduled[chosen_subject] += 1
+                day_subject_count[day][chosen_subject] += 1
+                day_last_subject[day] = chosen_subject
+            else:
+                slot_assignments[day][slot] = {
+                    "time": slot,
+                    "subject": "— Free Period —",
+                    "faculty": "",
+                }
+                day_last_subject[day] = None
+
+    # Construct the final timetable in ordered slot sequence
+    timetable = {}
+    for day in days:
+        timetable[day] = [
+            slot_assignments[day][slot] for slot in time_slots
+        ]
+
+    # Check for any subject that didn't meet its required hours
+    for s in subjects:
+        required = subject_hours.get(s, 4)
+        scheduled = subject_scheduled.get(s, 0)
+        if scheduled < required:
+            warnings.append(
+                f"'{s}' was scheduled for {scheduled}h out of {required}h required. "
+                f"Check available time slots, faculty mappings, or faculty availability."
+            )
+
+    return timetable, warnings
+
+
+# -----------------------------
+# Substitution Logic
+# -----------------------------
+def check_substitution(faculty_name, day, timetable, all_faculty):
+    """Find lectures by the given faculty on the given day and list available substitutes."""
+    affected = []
+    day_lectures = timetable.get(day, [])
+
+    for lec in day_lectures:
+        if lec.get("faculty") == faculty_name and lec.get("subject") != "— Free Period —":
+            # Find available substitutes (not busy in this slot on this day)
+            available_subs = []
+            for f in all_faculty:
+                if f == faculty_name:
+                    continue
+                # Check if this faculty is already teaching in this slot
+                is_busy = False
+                for d_lecs in timetable.values():
+                    for other_lec in d_lecs:
+                        if other_lec.get("faculty") == f and other_lec.get("time") == lec["time"]:
+                            # Check if it's the same day
+                            pass
+                # Simpler check: on the same day, same time slot
+                for other_lec in day_lectures:
+                    if other_lec.get("faculty") == f and other_lec.get("time") == lec["time"]:
+                        is_busy = True
+                        break
+
+                if not is_busy:
+                    available_subs.append(f)
+
+            affected.append({
+                "time": lec["time"],
+                "subject": lec["subject"],
+                "original_faculty": faculty_name,
+                "available_substitutes": available_subs,
+            })
+
+    return affected
+
+
+def auto_assign_substitutes(faculty_name, day, timetable, all_faculty):
+    """Auto-assign substitutes using a least-loaded-first strategy."""
+    affected = check_substitution(faculty_name, day, timetable, all_faculty)
+
+    # Count current load for each faculty on this day
+    day_lectures = timetable.get(day, [])
+    load = {f: 0 for f in all_faculty}
+    for lec in day_lectures:
+        f = lec.get("faculty", "")
+        if f in load:
+            load[f] += 1
+
+    suggestions = []
+    assigned_this_round = {}  # Track new assignments to avoid double-booking
+
+    for lec in affected:
+        available = lec["available_substitutes"]
+        # Filter out anyone already assigned in this round for the same slot
+        slot_time = lec["time"]
+        available = [
+            f for f in available
+            if assigned_this_round.get(f) != slot_time
+        ]
+
+        if available:
+            # Pick least-loaded
+            best = min(available, key=lambda f: load.get(f, 0))
+            suggestions.append({
+                "time": lec["time"],
+                "subject": lec["subject"],
+                "original_faculty": lec["original_faculty"],
+                "substitute_faculty": best,
+            })
+            load[best] = load.get(best, 0) + 1
+            assigned_this_round[best] = slot_time
+        else:
+            suggestions.append({
+                "time": lec["time"],
+                "subject": lec["subject"],
+                "original_faculty": lec["original_faculty"],
+                "substitute_faculty": None,
+                "warning": f"No substitute available for {lec['subject']} at {lec['time']}",
+            })
+
+    return suggestions
+
+
+def apply_substitutions(timetable, substitutions):
+    """Apply substitution assignments to the timetable."""
+    applied = []
+
+    for sub in substitutions:
+        day = sub["day"]
+        time_slot = sub["time"]
+        original = sub["original_faculty"]
+        substitute = sub["substitute_faculty"]
+
+        day_lectures = timetable.get(day, [])
+        for lec in day_lectures:
+            if lec.get("time") == time_slot and lec.get("faculty") == original:
+                lec["original_faculty"] = original
+                lec["faculty"] = substitute
+                lec["substituted"] = True
+                applied.append({
+                    "day": day,
+                    "time": time_slot,
+                    "subject": lec["subject"],
+                    "original_faculty": original,
+                    "substitute_faculty": substitute,
+                })
+                break
+
+    return timetable, applied
+
+
+# -----------------------------
+# Routes
+# -----------------------------
+@app.route("/")
+def index():
+    """Render the main page."""
+    return render_template(
+        "index.html",
+        faculty=DEFAULT_FACULTY,
+        subjects=DEFAULT_SUBJECTS,
+        days=DEFAULT_DAYS,
+        time_slots=DEFAULT_TIME_SLOTS,
+    )
+
+
+@app.route("/api/generate", methods=["POST"])
+def api_generate():
+    """API endpoint to generate a timetable with custom or default data."""
+    data = request.get_json() or {}
+
+    faculty = data.get("faculty") or DEFAULT_FACULTY
+    subjects = data.get("subjects") or DEFAULT_SUBJECTS
+    days = data.get("days") or DEFAULT_DAYS
+    time_slots = data.get("time_slots") or DEFAULT_TIME_SLOTS
+    subject_hours = data.get("subject_hours")
+    faculty_subjects = data.get("faculty_subjects")
+    faculty_availability = data.get("faculty_availability")
+
+    # --- Validation ---
+    errors = []
+    if not faculty or len(faculty) == 0:
+        errors.append("At least one faculty member is required.")
+    if not subjects or len(subjects) == 0:
+        errors.append("At least one subject is required.")
+    if not days or len(days) == 0:
+        errors.append("At least one day is required.")
+    if not time_slots or len(time_slots) == 0:
+        errors.append("At least one time slot is required.")
+
+    if errors:
+        return jsonify({"error": " ".join(errors)}), 400
+
+    timetable, warnings = generate_timetable(
+        faculty, subjects, days, time_slots,
+        subject_hours, faculty_subjects, faculty_availability,
+    )
+    return jsonify({"timetable": timetable, "days": days, "warnings": warnings})
+
+
+@app.route("/api/substitution/check", methods=["POST"])
+def api_substitution_check():
+    """Check which lectures need substitution."""
+    data = request.get_json() or {}
+    faculty_name = data.get("faculty")
+    day = data.get("day")
+    timetable = data.get("timetable")
+    all_faculty = data.get("all_faculty", [])
+
+    if not faculty_name or not day or not timetable:
+        return jsonify({"error": "Missing required fields."}), 400
+
+    affected = check_substitution(faculty_name, day, timetable, all_faculty)
+
+    if not affected:
+        return jsonify({
+            "affected_lectures": [],
+            "message": f"{faculty_name} has no lectures on {day}.",
+        })
+
+    return jsonify({"affected_lectures": affected})
+
+
+@app.route("/api/substitution/auto", methods=["POST"])
+def api_substitution_auto():
+    """Auto-assign substitutes."""
+    data = request.get_json() or {}
+    faculty_name = data.get("faculty")
+    day = data.get("day")
+    timetable = data.get("timetable")
+    all_faculty = data.get("all_faculty", [])
+
+    if not faculty_name or not day or not timetable:
+        return jsonify({"error": "Missing required fields."}), 400
+
+    suggestions = auto_assign_substitutes(faculty_name, day, timetable, all_faculty)
+    return jsonify({"suggestions": suggestions})
+
+
+@app.route("/api/substitution/apply", methods=["POST"])
+def api_substitution_apply():
+    """Apply substitutions to the timetable."""
+    data = request.get_json() or {}
+    timetable = data.get("timetable")
+    substitutions = data.get("substitutions", [])
+
+    if not timetable or not substitutions:
+        return jsonify({"error": "Missing required fields."}), 400
+
+    updated_timetable, applied = apply_substitutions(timetable, substitutions)
+    return jsonify({"timetable": updated_timetable, "applied": applied})
+
+
+# -----------------------------
+# Run
+# -----------------------------
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)
