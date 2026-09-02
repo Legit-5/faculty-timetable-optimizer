@@ -152,6 +152,6 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 ## 👨‍💻 Author
 
-Built with ❤️ as part of AI/ML coursework — BSE Sem 1.
+Built with ❤️ by **Aryan** — BSE Sem 1, AI/ML Coursework.
 
 > *"Good scheduling is invisible. Bad scheduling is a crisis."*
