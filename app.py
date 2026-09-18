@@ -894,6 +894,16 @@ def api_substitution_apply():
         return jsonify({"status": "error", "error": str(e)}), 400
 
 
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Health check endpoint for container and cloud deployment liveness probes."""
+    return jsonify({
+        "status": "healthy",
+        "service": "faculty-timetable-optimizer",
+        "version": "1.0.0"
+    }), 200
+
+
 @app.route("/api/algorithm-info", methods=["GET"])
 def api_algorithm_info():
     """Returns documentation and explanation of the Greedy Heuristic Algorithm for Viva."""
@@ -917,4 +927,8 @@ def api_algorithm_info():
 # 9. MAIN ENTRY POINT
 # ============================================================================
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    debug = os.environ.get("FLASK_DEBUG", "false").lower() in ("1", "true", "yes")
+    app.run(host="0.0.0.0", port=port, debug=debug)
+
